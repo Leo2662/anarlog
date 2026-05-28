@@ -78,6 +78,7 @@ jobs:
           VITE_API_URL: http://localhost:3001
           VERGEN_GIT_SHA: unknown
           AM_API_KEY: placeholder
+          RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
         run: pnpm -F @hypr/desktop tauri build -- --no-bundle
 
       # If the build failed, show available package names and abort
