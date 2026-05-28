@@ -73,6 +73,8 @@ jobs:
         id: tauri-build
         working-directory: ${{ env.ANARLOG_DIR }}
         continue-on-error: true
+        env:
+          POSTHOG_API_KEY: placeholder
         run: pnpm -F @hypr/desktop tauri build -- --no-bundle
 
       # If the build failed, show available package names and abort
