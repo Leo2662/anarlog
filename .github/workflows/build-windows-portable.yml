@@ -54,6 +54,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ env.ANARLOG_DIR }}
+          cache-on-failure: true
 
       # ----------------------------------------------------------------
       # Install project dependencies
