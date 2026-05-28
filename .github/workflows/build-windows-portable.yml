@@ -82,6 +82,18 @@ jobs:
           RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
         run: pnpm -F @hypr/desktop tauri build -- --no-bundle
 
+      # Also produce a debug build (console visible) for diagnosing silent crashes
+      - name: Build debug binary (console visible)
+        if: steps.tauri-build.outcome == 'success'
+        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
+        env:
+          POSTHOG_API_KEY: placeholder
+          VITE_API_URL: http://localhost:3001
+          VERGEN_GIT_SHA: unknown
+          AM_API_KEY: placeholder
+          RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
+        run: cargo build
+
       # If the build failed, show available package names and abort
       - name: Diagnose build failure
         if: steps.tauri-build.outcome == 'failure'
@@ -97,6 +109,18 @@ jobs:
       # ----------------------------------------------------------------
       - name: Find and copy executable
         run: scripts/find-anarlog-exe.ps1
+
+      # Copy the debug binary (console visible) alongside for diagnostics
+      - name: Copy debug binary for diagnostics
+        if: steps.tauri-build.outcome == 'success'
+        shell: pwsh
+        run: |
+          $debugExe = Get-ChildItem -Path anarlog/apps/desktop/src-tauri/target/debug -Filter "*.exe" | Where-Object { $_.Name -notmatch "\.d$" } | Sort-Object Length -Descending | Select-Object -First 1
+          if ($debugExe) {
+            New-Item -ItemType Directory -Path dist/AnarlogPortable -Force | Out-Null
+            Copy-Item $debugExe.FullName dist/AnarlogPortable/Anarlog-debug.exe -Force
+            Write-Host "Debug binary copied: $($debugExe.Name)"
+          }
 
       - name: Package portable ZIP
         run: scripts/package-portable.ps1
