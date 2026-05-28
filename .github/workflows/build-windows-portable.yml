@@ -1,0 +1,110 @@
+name: Build Windows Portable
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Git tag for a GitHub Release (e.g., v1.0.0). Leave empty to only upload the artifact."
+        required: false
+        type: string
+
+env:
+  ANARLOG_DIR: anarlog
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      # ----------------------------------------------------------------
+      # Checkout: builder repo at root, anarlog source into subdirectory
+      # ----------------------------------------------------------------
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: fastrepl/anarlog
+          path: ${{ env.ANARLOG_DIR }}
+
+      # ----------------------------------------------------------------
+      # Toolchain setup
+      # ----------------------------------------------------------------
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: ${{ env.ANARLOG_DIR }}/pnpm-lock.yaml
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.ANARLOG_DIR }}
+
+      # ----------------------------------------------------------------
+      # Install project dependencies
+      # ----------------------------------------------------------------
+      - name: Install pnpm dependencies
+        working-directory: ${{ env.ANARLOG_DIR }}
+        run: pnpm install
+
+      # ----------------------------------------------------------------
+      # Tauri build with --no-bundle (skip MSI/NSIS generation)
+      # ----------------------------------------------------------------
+      - name: Build portable exe (no-bundle)
+        id: tauri-build
+        working-directory: ${{ env.ANARLOG_DIR }}
+        continue-on-error: true
+        run: pnpm -F @hypr/desktop tauri build -- --no-bundle
+
+      # If the build failed, show available package names and abort
+      - name: Diagnose build failure
+        if: steps.tauri-build.outcome == 'failure'
+        working-directory: ${{ env.ANARLOG_DIR }}
+        run: |
+          Write-Host "::error::Tauri build failed. Available workspace packages:"
+          pnpm -r list --depth -1
+          Write-Host "::error::If the @hypr/desktop package filter has changed, update the workflow."
+          exit 1
+
+      # ----------------------------------------------------------------
+      # Package the portable build
+      # ----------------------------------------------------------------
+      - name: Find and copy executable
+        run: scripts/find-anarlog-exe.ps1
+
+      - name: Package portable ZIP
+        run: scripts/package-portable.ps1
+
+      # ----------------------------------------------------------------
+      # Upload artifact (always)
+      # ----------------------------------------------------------------
+      - uses: actions/upload-artifact@v4
+        with:
+          name: anarlog-windows-portable-x64
+          path: dist/anarlog-windows-portable-x64.zip
+
+      # ----------------------------------------------------------------
+      # Optional: create a GitHub Release
+      # ----------------------------------------------------------------
+      - name: Create GitHub Release
+        if: inputs.release_tag != '' && success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          files: dist/anarlog-windows-portable-x64.zip
+          generate_release_notes: false

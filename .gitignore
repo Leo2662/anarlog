@@ -1,0 +1,9 @@
+# Portable build output
+dist/
+
+# Upstream source (cloned by the workflow)
+anarlog/
+
+# OS junk
+Thumbs.db
+.DS_Store
