@@ -75,6 +75,9 @@ jobs:
         continue-on-error: true
         env:
           POSTHOG_API_KEY: placeholder
+          VITE_API_URL: http://localhost:3001
+          VERGEN_GIT_SHA: unknown
+          AM_API_KEY: placeholder
         run: pnpm -F @hypr/desktop tauri build -- --no-bundle
 
       # If the build failed, show available package names and abort
