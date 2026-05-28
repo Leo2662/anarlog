@@ -63,8 +63,12 @@ jobs:
         run: pnpm install
 
       # ----------------------------------------------------------------
-      # Tauri build with --no-bundle (skip MSI/NSIS generation)
+      # Build workspace dependencies first, then Tauri build with --no-bundle
       # ----------------------------------------------------------------
+      - name: Build workspace dependencies
+        working-directory: ${{ env.ANARLOG_DIR }}
+        run: pnpm exec turbo build --filter=@hypr/desktop^...
+
       - name: Build portable exe (no-bundle)
         id: tauri-build
         working-directory: ${{ env.ANARLOG_DIR }}
