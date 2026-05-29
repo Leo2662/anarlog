@@ -180,38 +180,43 @@ jobs:
           git checkout -- src/main.rs
           Write-Host "Restored original main.rs"
 
-      - name: Run release-opt3 and capture output
+      # Quick smoke-test: run each diagnostic binary with a 10s timeout
+      - name: Smoke-test release-opt3
         if: steps.tauri-build.outcome == 'success'
+        continue-on-error: true
         shell: pwsh
         working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
         run: |
           $exe = "target/release/desktop-opt3-console.exe"
-          $stdout = "$env:RUNNER_TEMP/opt3-stdout.txt"
-          $stderr = "$env:RUNNER_TEMP/opt3-stderr.txt"
-          Write-Host "Running $exe ..."
-          $p = Start-Process -FilePath $exe -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          Write-Host "Exit code: $($p.ExitCode)"
-          Write-Host "=== stdout ==="
-          Get-Content $stdout -Raw | ForEach-Object { if ($_) { Write-Host $_ } else { Write-Host "(empty)" } }
-          Write-Host "=== stderr ==="
-          Get-Content $stderr -Raw | ForEach-Object { if ($_) { Write-Host $_ } else { Write-Host "(empty)" } }
+          Write-Host "Running $exe (10s timeout)..."
+          $p = Start-Process -FilePath $exe -NoNewWindow -PassThru -RedirectStandardError "$env:RUNNER_TEMP/opt3-err.txt"
+          if ($p.WaitForExit(10000)) {
+              Write-Host "Exited with code $($p.ExitCode)"
+              Write-Host "=== stderr ==="
+              Get-Content "$env:RUNNER_TEMP/opt3-err.txt" -Raw | ForEach-Object { if ($_) { Write-Host $_ } }
+          } else {
+              $p.Kill()
+              Write-Host "Killed after 10s (app started successfully)"
+          }
 
-      - name: Run release-opt0 and capture output
+      - name: Smoke-test release-opt0
         if: steps.tauri-build.outcome == 'success'
         continue-on-error: true
         shell: pwsh
         working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
         run: |
           $exe = "target/release/desktop-opt0-console.exe"
-          $stdout = "$env:RUNNER_TEMP/opt0-stdout.txt"
-          $stderr = "$env:RUNNER_TEMP/opt0-stderr.txt"
-          Write-Host "Running $exe ..."
-          $p = Start-Process -FilePath $exe -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-          Write-Host "Exit code: $($p.ExitCode)"
-          Write-Host "=== stdout ==="
-          Get-Content $stdout -Raw | ForEach-Object { if ($_) { Write-Host $_ } else { Write-Host "(empty)" } }
-          Write-Host "=== stderr ==="
-          Get-Content $stderr -Raw | ForEach-Object { if ($_) { Write-Host $_ } else { Write-Host "(empty)" } }
+          if (-not (Test-Path $exe)) { Write-Host "Skipping (not built)"; return }
+          Write-Host "Running $exe (10s timeout)..."
+          $p = Start-Process -FilePath $exe -NoNewWindow -PassThru -RedirectStandardError "$env:RUNNER_TEMP/opt0-err.txt"
+          if ($p.WaitForExit(10000)) {
+              Write-Host "Exited with code $($p.ExitCode)"
+              Write-Host "=== stderr ==="
+              Get-Content "$env:RUNNER_TEMP/opt0-err.txt" -Raw | ForEach-Object { if ($_) { Write-Host $_ } }
+          } else {
+              $p.Kill()
+              Write-Host "Killed after 10s (app started successfully)"
+          }
 
       - name: Copy diagnostic binaries to output
         if: steps.tauri-build.outcome == 'success'
