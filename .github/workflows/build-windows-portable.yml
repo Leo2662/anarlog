@@ -140,6 +140,7 @@ jobs:
 
       - name: Build release-opt3 (normal release profile, lto=on)
         if: steps.tauri-build.outcome == 'success'
+        continue-on-error: true
         shell: pwsh
         env:
           POSTHOG_API_KEY: placeholder
@@ -155,6 +156,7 @@ jobs:
 
       - name: Build release-opt0 (no optimizations, no lto)
         if: steps.tauri-build.outcome == 'success'
+        continue-on-error: true
         shell: pwsh
         env:
           POSTHOG_API_KEY: placeholder
@@ -164,10 +166,8 @@ jobs:
           RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
           CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
           CARGO_PROFILE_RELEASE_LTO: "off"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "256"
         working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
         run: |
-          cargo clean -p desktop 2>$null
           cargo build --release
           Copy-Item "target/release/desktop.exe" "target/release/desktop-opt0-console.exe" -Force
           Write-Host "Built release-opt0"
@@ -198,6 +198,7 @@ jobs:
 
       - name: Run release-opt0 and capture output
         if: steps.tauri-build.outcome == 'success'
+        continue-on-error: true
         shell: pwsh
         working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
         run: |
@@ -214,6 +215,7 @@ jobs:
 
       - name: Copy diagnostic binaries to output
         if: steps.tauri-build.outcome == 'success'
+        continue-on-error: true
         shell: pwsh
         run: |
           $dest = "dist/AnarlogPortable"
