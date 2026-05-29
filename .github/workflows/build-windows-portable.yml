@@ -122,9 +122,23 @@ jobs:
             Write-Host "Debug binary copied: $($debugExe.Name)"
           }
 
-      # Build a release binary WITHOUT windows_subsystem so the console stays visible.
-      # This helps diagnose release-only crashes that don't appear in debug mode.
-      - name: Build release binary with console (for diagnostics)
+      # ----------------------------------------------------------------
+      # Diagnostic builds: release profiles with console visible
+      # ----------------------------------------------------------------
+
+      # Helper: patch main.rs to remove windows_subsystem
+      - name: Patch main.rs for console mode
+        if: steps.tauri-build.outcome == 'success'
+        shell: pwsh
+        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
+        run: |
+          $mainRs = "src/main.rs"
+          $content = Get-Content $mainRs -Raw
+          $patched = $content -replace '#!\[cfg_attr\(not\(debug_assertions\), windows_subsystem = "windows"\)\]', '// console-enabled build'
+          Set-Content $mainRs -Value $patched -NoNewline
+          Write-Host "Patched main.rs"
+
+      - name: Build release-opt3 (normal release profile, lto=on)
         if: steps.tauri-build.outcome == 'success'
         shell: pwsh
         env:
@@ -135,30 +149,83 @@ jobs:
           RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
         working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
         run: |
-          # Temporarily remove windows_subsystem so console output is visible
-          $mainRs = "src/main.rs"
-          $content = Get-Content $mainRs -Raw
-          $patched = $content -replace '#!\[cfg_attr\(not\(debug_assertions\), windows_subsystem = "windows"\)\]', '// console-enabled build'
-          Set-Content $mainRs -Value $patched -NoNewline
-          Write-Host "Patched main.rs for console-enabled release build"
-
           cargo build --release
+          Copy-Item "target/release/desktop.exe" "target/release/desktop-opt3-console.exe" -Force
+          Write-Host "Built release-opt3"
 
-          # Restore original main.rs
-          git checkout -- $mainRs
+      - name: Build release-opt0 (no optimizations, no lto)
+        if: steps.tauri-build.outcome == 'success'
+        shell: pwsh
+        env:
+          POSTHOG_API_KEY: placeholder
+          VITE_API_URL: http://localhost:3001
+          VERGEN_GIT_SHA: unknown
+          AM_API_KEY: placeholder
+          RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "256"
+        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
+        run: |
+          cargo clean -p desktop 2>$null
+          cargo build --release
+          Copy-Item "target/release/desktop.exe" "target/release/desktop-opt0-console.exe" -Force
+          Write-Host "Built release-opt0"
+
+      - name: Restore original main.rs
+        if: steps.tauri-build.outcome == 'success'
+        shell: pwsh
+        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
+        run: |
+          git checkout -- src/main.rs
           Write-Host "Restored original main.rs"
 
-      - name: Copy release-console binary
+      - name: Run release-opt3 and capture output
+        if: steps.tauri-build.outcome == 'success'
+        shell: pwsh
+        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
+        run: |
+          $exe = "target/release/desktop-opt3-console.exe"
+          $stdout = "$env:RUNNER_TEMP/opt3-stdout.txt"
+          $stderr = "$env:RUNNER_TEMP/opt3-stderr.txt"
+          Write-Host "Running $exe ..."
+          $p = Start-Process -FilePath $exe -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Write-Host "Exit code: $($p.ExitCode)"
+          Write-Host "=== stdout ==="
+          Get-Content $stdout -Raw | ForEach-Object { if ($_) { Write-Host $_ } else { Write-Host "(empty)" } }
+          Write-Host "=== stderr ==="
+          Get-Content $stderr -Raw | ForEach-Object { if ($_) { Write-Host $_ } else { Write-Host "(empty)" } }
+
+      - name: Run release-opt0 and capture output
+        if: steps.tauri-build.outcome == 'success'
+        shell: pwsh
+        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
+        run: |
+          $exe = "target/release/desktop-opt0-console.exe"
+          $stdout = "$env:RUNNER_TEMP/opt0-stdout.txt"
+          $stderr = "$env:RUNNER_TEMP/opt0-stderr.txt"
+          Write-Host "Running $exe ..."
+          $p = Start-Process -FilePath $exe -NoNewWindow -Wait -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Write-Host "Exit code: $($p.ExitCode)"
+          Write-Host "=== stdout ==="
+          Get-Content $stdout -Raw | ForEach-Object { if ($_) { Write-Host $_ } else { Write-Host "(empty)" } }
+          Write-Host "=== stderr ==="
+          Get-Content $stderr -Raw | ForEach-Object { if ($_) { Write-Host $_ } else { Write-Host "(empty)" } }
+
+      - name: Copy diagnostic binaries to output
         if: steps.tauri-build.outcome == 'success'
         shell: pwsh
         run: |
-          $relExe = Get-ChildItem -Path anarlog/apps/desktop/src-tauri/target/release -Filter "*.exe" | Where-Object { $_.Name -notmatch "\.d$" } | Sort-Object Length -Descending | Select-Object -First 1
-          if ($relExe) {
-            $destDir = "dist/AnarlogPortable"
-            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
-            Copy-Item $relExe.FullName "$destDir/Anarlog-release-console.exe" -Force
-            Write-Host "Release-console binary copied: $($relExe.Name)"
-          }
+          $dest = "dist/AnarlogPortable"
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          # Tauri-release binary (no console, original)
+          $tauriExe = Get-ChildItem -Path anarlog/apps/desktop/src-tauri/target/release -Filter "anarlog-dev.exe" | Select-Object -First 1
+          if ($tauriExe) { Copy-Item $tauriExe.FullName "$dest/Anarlog-tauri-release.exe" -Force }
+          # Cargo release with console, opt-level=3
+          Copy-Item anarlog/apps/desktop/src-tauri/target/release/desktop-opt3-console.exe "$dest/Anarlog-release-opt3.exe" -Force -ErrorAction SilentlyContinue
+          # Cargo release with console, opt-level=0
+          Copy-Item anarlog/apps/desktop/src-tauri/target/release/desktop-opt0-console.exe "$dest/Anarlog-release-opt0.exe" -Force -ErrorAction SilentlyContinue
+          Get-ChildItem $dest
 
       - name: Package portable ZIP
         run: scripts/package-portable.ps1
