@@ -19,9 +19,6 @@ jobs:
         shell: pwsh
 
     steps:
-      # ----------------------------------------------------------------
-      # Checkout: builder repo at root, anarlog source into subdirectory
-      # ----------------------------------------------------------------
       - uses: actions/checkout@v4
 
       - uses: actions/checkout@v4
@@ -29,9 +26,6 @@ jobs:
           repository: fastrepl/anarlog
           path: ${{ env.ANARLOG_DIR }}
 
-      # ----------------------------------------------------------------
-      # Toolchain setup
-      # ----------------------------------------------------------------
       - uses: pnpm/action-setup@v4
         with:
           version: 11.1.1
@@ -56,16 +50,10 @@ jobs:
           workspaces: ${{ env.ANARLOG_DIR }}
           cache-on-failure: true
 
-      # ----------------------------------------------------------------
-      # Install project dependencies
-      # ----------------------------------------------------------------
       - name: Install pnpm dependencies
         working-directory: ${{ env.ANARLOG_DIR }}
         run: pnpm install
 
-      # ----------------------------------------------------------------
-      # Build workspace dependencies first, then Tauri build with --no-bundle
-      # ----------------------------------------------------------------
       - name: Build workspace dependencies
         working-directory: ${{ env.ANARLOG_DIR }}
         run: pnpm exec turbo build --filter=@hypr/desktop^...
@@ -73,7 +61,6 @@ jobs:
       - name: Build portable exe (no-bundle)
         id: tauri-build
         working-directory: ${{ env.ANARLOG_DIR }}
-        continue-on-error: true
         env:
           POSTHOG_API_KEY: phc_placeholder
           VITE_API_URL: http://localhost:3001
@@ -82,172 +69,26 @@ jobs:
           RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
         run: pnpm -F @hypr/desktop tauri build -- --no-bundle
 
-      # Also produce a debug build (console visible) for diagnosing silent crashes
-      - name: Build debug binary (console visible)
-        if: steps.tauri-build.outcome == 'success'
-        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
-        env:
-          POSTHOG_API_KEY: phc_placeholder
-          VITE_API_URL: http://localhost:3001
-          VERGEN_GIT_SHA: unknown
-          AM_API_KEY: placeholder
-          RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
-        run: cargo build
-
-      # If the build failed, show available package names and abort
       - name: Diagnose build failure
         if: steps.tauri-build.outcome == 'failure'
-        working-directory: ${{ env.ANARLOG_DIR }}
         run: |
           Write-Host "::error::Tauri build failed. Available workspace packages:"
-          pnpm -r list --depth -1
+          pnpm -r list --depth -1 --filter ${{ env.ANARLOG_DIR }}
           Write-Host "::error::If the @hypr/desktop package filter has changed, update the workflow."
           exit 1
 
-      # ----------------------------------------------------------------
-      # Package the portable build
-      # ----------------------------------------------------------------
       - name: Find and copy executable
+        if: steps.tauri-build.outcome == 'success'
         run: scripts/find-anarlog-exe.ps1
-
-      # Copy the debug binary (console visible) alongside for diagnostics
-      - name: Copy debug binary for diagnostics
-        if: steps.tauri-build.outcome == 'success'
-        shell: pwsh
-        run: |
-          $debugExe = Get-ChildItem -Path anarlog/apps/desktop/src-tauri/target/debug -Filter "*.exe" | Where-Object { $_.Name -notmatch "\.d$" } | Sort-Object Length -Descending | Select-Object -First 1
-          if ($debugExe) {
-            New-Item -ItemType Directory -Path dist/AnarlogPortable -Force | Out-Null
-            Copy-Item $debugExe.FullName dist/AnarlogPortable/Anarlog-debug.exe -Force
-            Write-Host "Debug binary copied: $($debugExe.Name)"
-          }
-
-      # ----------------------------------------------------------------
-      # Diagnostic builds: release profiles with console visible
-      # ----------------------------------------------------------------
-
-      # Helper: patch main.rs to remove windows_subsystem
-      - name: Patch main.rs for console mode
-        if: steps.tauri-build.outcome == 'success'
-        shell: pwsh
-        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
-        run: |
-          $mainRs = "src/main.rs"
-          $content = Get-Content $mainRs -Raw
-          $patched = $content -replace '#!\[cfg_attr\(not\(debug_assertions\), windows_subsystem = "windows"\)\]', '// console-enabled build'
-          Set-Content $mainRs -Value $patched -NoNewline
-          Write-Host "Patched main.rs"
-
-      - name: Build release-opt3 (normal release profile, lto=on)
-        if: steps.tauri-build.outcome == 'success'
-        continue-on-error: true
-        shell: pwsh
-        env:
-          POSTHOG_API_KEY: phc_placeholder
-          VITE_API_URL: http://localhost:3001
-          VERGEN_GIT_SHA: unknown
-          AM_API_KEY: placeholder
-          RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
-        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
-        run: |
-          cargo build --release
-          Copy-Item "target/release/desktop.exe" "target/release/desktop-opt3-console.exe" -Force
-          Write-Host "Built release-opt3"
-
-      - name: Build release-opt0 (no optimizations, no lto)
-        if: steps.tauri-build.outcome == 'success'
-        continue-on-error: true
-        shell: pwsh
-        env:
-          POSTHOG_API_KEY: phc_placeholder
-          VITE_API_URL: http://localhost:3001
-          VERGEN_GIT_SHA: unknown
-          AM_API_KEY: placeholder
-          RUSTFLAGS: -C target-feature=-crt-static -C link-args=/FORCE:MULTIPLE
-          CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
-          CARGO_PROFILE_RELEASE_LTO: "off"
-        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
-        run: |
-          cargo build --release
-          Copy-Item "target/release/desktop.exe" "target/release/desktop-opt0-console.exe" -Force
-          Write-Host "Built release-opt0"
-
-      - name: Restore original main.rs
-        if: steps.tauri-build.outcome == 'success'
-        shell: pwsh
-        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
-        run: |
-          git checkout -- src/main.rs
-          Write-Host "Restored original main.rs"
-
-      # Quick smoke-test: run each diagnostic binary with a 10s timeout
-      - name: Smoke-test release-opt3
-        if: steps.tauri-build.outcome == 'success'
-        continue-on-error: true
-        shell: pwsh
-        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
-        run: |
-          $exe = "target/release/desktop-opt3-console.exe"
-          Write-Host "Running $exe (10s timeout)..."
-          $p = Start-Process -FilePath $exe -NoNewWindow -PassThru -RedirectStandardError "$env:RUNNER_TEMP/opt3-err.txt"
-          if ($p.WaitForExit(10000)) {
-              Write-Host "Exited with code $($p.ExitCode)"
-              Write-Host "=== stderr ==="
-              Get-Content "$env:RUNNER_TEMP/opt3-err.txt" -Raw | ForEach-Object { if ($_) { Write-Host $_ } }
-          } else {
-              $p.Kill()
-              Write-Host "Killed after 10s (app started successfully)"
-          }
-
-      - name: Smoke-test release-opt0
-        if: steps.tauri-build.outcome == 'success'
-        continue-on-error: true
-        shell: pwsh
-        working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
-        run: |
-          $exe = "target/release/desktop-opt0-console.exe"
-          if (-not (Test-Path $exe)) { Write-Host "Skipping (not built)"; return }
-          Write-Host "Running $exe (10s timeout)..."
-          $p = Start-Process -FilePath $exe -NoNewWindow -PassThru -RedirectStandardError "$env:RUNNER_TEMP/opt0-err.txt"
-          if ($p.WaitForExit(10000)) {
-              Write-Host "Exited with code $($p.ExitCode)"
-              Write-Host "=== stderr ==="
-              Get-Content "$env:RUNNER_TEMP/opt0-err.txt" -Raw | ForEach-Object { if ($_) { Write-Host $_ } }
-          } else {
-              $p.Kill()
-              Write-Host "Killed after 10s (app started successfully)"
-          }
-
-      - name: Copy diagnostic binaries to output
-        if: steps.tauri-build.outcome == 'success'
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          $dest = "dist/AnarlogPortable"
-          New-Item -ItemType Directory -Path $dest -Force | Out-Null
-          # Tauri-release binary (no console, original)
-          $tauriExe = Get-ChildItem -Path anarlog/apps/desktop/src-tauri/target/release -Filter "anarlog-dev.exe" | Select-Object -First 1
-          if ($tauriExe) { Copy-Item $tauriExe.FullName "$dest/Anarlog-tauri-release.exe" -Force }
-          # Cargo release with console, opt-level=3
-          Copy-Item anarlog/apps/desktop/src-tauri/target/release/desktop-opt3-console.exe "$dest/Anarlog-release-opt3.exe" -Force -ErrorAction SilentlyContinue
-          # Cargo release with console, opt-level=0
-          Copy-Item anarlog/apps/desktop/src-tauri/target/release/desktop-opt0-console.exe "$dest/Anarlog-release-opt0.exe" -Force -ErrorAction SilentlyContinue
-          Get-ChildItem $dest
 
       - name: Package portable ZIP
         run: scripts/package-portable.ps1
 
-      # ----------------------------------------------------------------
-      # Upload artifact (always)
-      # ----------------------------------------------------------------
       - uses: actions/upload-artifact@v4
         with:
           name: anarlog-windows-portable-x64
           path: dist/anarlog-windows-portable-x64.zip
 
-      # ----------------------------------------------------------------
-      # Optional: create a GitHub Release
-      # ----------------------------------------------------------------
       - name: Create GitHub Release
         if: inputs.release_tag != '' && success()
         uses: softprops/action-gh-release@v2
