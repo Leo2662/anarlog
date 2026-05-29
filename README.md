@@ -33,3 +33,9 @@ If a `release_tag` was provided, the ZIP is also attached to the corresponding G
 ## Binary name detection
 
 Anarlog has been renamed multiple times during development (hyprnote → anarlog/char). The `mainBinaryName` in `tauri.conf.json` may still reference older names. The build workflow automatically searches for the compiled `.exe` rather than hardcoding a name.
+
+## Debugging
+
+If the portable `.exe` launches but shows no window, grab `Anarlog-debug.exe` from the same artifact and run it from a command prompt. The console window will show any startup errors.
+
+See [`docs/retour-experience.md`](docs/retour-experience.md) (in French) for a full breakdown of all issues encountered and how they were solved.
