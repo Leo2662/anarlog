@@ -75,7 +75,7 @@ jobs:
         working-directory: ${{ env.ANARLOG_DIR }}
         continue-on-error: true
         env:
-          POSTHOG_API_KEY: placeholder
+          POSTHOG_API_KEY: phc_placeholder
           VITE_API_URL: http://localhost:3001
           VERGEN_GIT_SHA: unknown
           AM_API_KEY: placeholder
@@ -87,7 +87,7 @@ jobs:
         if: steps.tauri-build.outcome == 'success'
         working-directory: ${{ env.ANARLOG_DIR }}/apps/desktop/src-tauri
         env:
-          POSTHOG_API_KEY: placeholder
+          POSTHOG_API_KEY: phc_placeholder
           VITE_API_URL: http://localhost:3001
           VERGEN_GIT_SHA: unknown
           AM_API_KEY: placeholder
@@ -143,7 +143,7 @@ jobs:
         continue-on-error: true
         shell: pwsh
         env:
-          POSTHOG_API_KEY: placeholder
+          POSTHOG_API_KEY: phc_placeholder
           VITE_API_URL: http://localhost:3001
           VERGEN_GIT_SHA: unknown
           AM_API_KEY: placeholder
@@ -159,7 +159,7 @@ jobs:
         continue-on-error: true
         shell: pwsh
         env:
-          POSTHOG_API_KEY: placeholder
+          POSTHOG_API_KEY: phc_placeholder
           VITE_API_URL: http://localhost:3001
           VERGEN_GIT_SHA: unknown
           AM_API_KEY: placeholder
